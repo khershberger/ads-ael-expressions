@@ -1,0 +1,76 @@
+//****************************************************************************
+// meas_devel.ael
+//****************************************************************************
+//
+// Sandbox for devleoping AEL DDS functions
+
+//****************************************************************************
+// diff() - Non-suck calculation of 1st derivative
+//****************************************************************************
+defun diffns(data)
+{
+  fputs(stderr, "*** diffns()");
+  decl sweepDim = sweep_dim(data);
+  decl results = NULL; 
+  fputs(stderr, strcat("sweepDim=",identify_value(sweepDim)));
+
+  switch (sweepDim) {
+    case 0: print_function_error( "diffns", " does not support single number data.");
+      return;
+      break;
+    case 1: results = diffns_1d(data);
+       break;
+    case 2: results = diffns_2d(data);
+       break;
+    case 3: results = diffns_3d(data);
+       break;
+    default: print_function_error( "diffns", " does not support data with dimensions greater than one.");
+      return;
+      break;
+  }
+
+  return results;
+}
+
+defun diffns_1d(data)
+{
+
+  decl k=0;
+  decl sweep_len = sweep_size(data);
+  // Multiplying value returned from indep() by 1 is critical
+  // Otherwise DDS will crash when interpolate() is called
+  decl data_indep = 1.0*indep(data,1);  
+
+  return(interpolate("linear", diff(data,0), 1, data_indep)); 
+}
+
+defun diffns_2d(data)
+{
+  decl result=0*data[::,::];
+  decl numPts_k = sweep_size(result[::,0]);
+  decl k;
+
+  for (k=0; k<numPts_k; k++)                       
+  {
+    result[k,::] = diffns_1d(data[k,::]);
+  }
+  return(result);  
+}
+
+defun diffns_3d(data)
+{
+  decl result=0*data[::,::,::];
+  decl numPts_k3 = sweep_size(result[::,0,0]);
+  decl k3;
+  
+  for (k3=0; k3<numPts_k3; k3++)                       
+  {
+    result[k3,::,::] = diffns_2d(data[k3,::,::]);
+  }
+  return(result);  
+}
+
+defun renorm(S,Z0new)
+{
+  return(ztos(stoz(S,50),Z0new));
+}
