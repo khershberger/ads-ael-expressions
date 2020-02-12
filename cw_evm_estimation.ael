@@ -1,7 +1,7 @@
 //****************************************************************************
 // cw_evm_estimation.ael
 //****************************************************************************
-//  Revision 2.3.0
+//  Revision 2.4.1
 // 
 // Function to estimate OFDM EVM based on CW simulation
 // 
@@ -22,20 +22,27 @@
 //****************************************************************************
 defun cwevm(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
 {
-  fputs(stderr, "*** evm()");
+  //debug = if (debug == NULL) then FALSE else debug;   // Set default debug state
+  decl debug = FALSE;
   decl sweepDim = sweep_dim(Pin);
   decl results = NULL; 
-  fputs(stderr, strcat("sweepDim=",identify_value(sweepDim)));
+  if (debug) {
+    fputs(stderr, "*** evm()");
+    fputs(stderr, strcat("sweepDim=",identify_value(sweepDim)));
+  }
 
   switch (sweepDim) {
     case 0: print_function_error( "cwevm", " does not support single number data.");
       return;
       break;
-    case 1: results = cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+    case 1: results = cwevm_1d(Pin, Pout, gain_delta, phase_delta, 
+                               EVM_Pstep, limit_low, limit_high, debug);
        break;
-    case 2: results = cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+    case 2: results = cwevm_2d(Pin, Pout, gain_delta, phase_delta, 
+                               EVM_Pstep, limit_low, limit_high, debug);
        break;
-    case 3: results = cwevm_3d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+    case 3: results = cwevm_3d(Pin, Pout, gain_delta, phase_delta, 
+                               EVM_Pstep, limit_low, limit_high, debug);
        break;
     default: print_function_error( "cwevm", " does not support data with dimensions greater than three.");
       return;
@@ -45,20 +52,23 @@ defun cwevm(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high
   return results;
 }
 
-defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, 
+               EVM_Pstep, limit_low, limit_high, debug)
 {
-  fputs(stderr, "evm_1d:");
-  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::]));
-  fprintf(stderr, "[1d] min(Pin): %g\n", min(Pin));
-  fprintf(stderr, "[1d] max(Pin): %g\n", max(Pin));
+  if (debug) {
+    fputs(stderr, "evm_1d:");
+    fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::]));
+    fprintf(stderr, "[1d] min(Pin): %g\n", min(Pin));
+    fprintf(stderr, "[1d] max(Pin): %g\n", max(Pin));
+  }
   
-  //decl Pin_avg = cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high);
+  //decl Pin_avg = cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high, debug);
   decl Pin_avg=Pin; // [min(Pin)::EVM_Pstep::max(Pin)];
   decl Pin_num_total = sweep_size(Pin_avg);
   // This is lazy
   // Assumes that first PIn level is valid
   // Should really add handling for first valid Pin level not being index 0
-  decl Pin_num_valid = sweep_size(cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high));
+  decl Pin_num_valid = sweep_size(cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high, debug));
   
   decl cnt=0;
   decl Pout_avg=0*Pin_avg;
@@ -68,8 +78,10 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
   decl Pin_idx, rdB, r1, r2, dr, rPin, rPin_idx;
   decl ridx, rstart, rstop;
 
-  fprintf(stderr, "Input Power Levels:  %d\n", Pin_num_total);
-  fprintf(stderr, "Valid Power levels: %d\n",  Pin_num_valid);
+  if (debug) {
+    fprintf(stderr, "Input Power Levels:  %d\n", Pin_num_total);
+    fprintf(stderr, "Valid Power levels: %d\n",  Pin_num_valid);
+  }
  
   for (cnt=0; cnt<Pin_num_valid; cnt++)
   {
@@ -103,7 +115,10 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
     EVM_AMPM[cnt]=pi/180*sqrt(EVM_AMPM[cnt]);
     evm_calc[cnt]=sqrt(sqr(EVM_AMAM[cnt])+sqr(EVM_AMPM[cnt]));
 
-    fprintf(stderr, "pout: %g\tevmAM: %g\tevmPM: %g\tevmRMS: %g\n", Pout_avg[cnt], EVM_AMAM[cnt], EVM_AMPM[cnt], evm_calc[cnt]);
+    if (debug) {
+      fprintf(stderr, "pout: %g\tevmAM: %g\tevmPM: %g\tevmRMS: %g\n", 
+              Pout_avg[cnt], EVM_AMAM[cnt], EVM_AMPM[cnt], evm_calc[cnt]);
+    }
   }
   
   // decl result=vs(evm_calc, Pout_avg, "Pout_dBm");
@@ -112,14 +127,16 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
   return(vs(evm_calc,indep(Pin))); 
 }
 
-defun cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+defun cwevm_2d(Pin, Pout, gain_delta, phase_delta, 
+               EVM_Pstep, limit_low, limit_high, debug)
 {
-  fputs(stderr, "cwevm_2d:");
-  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0]));
-  fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::]));
-  fprintf(stderr, "[2d] min(Pin): %g\n", min(Pin[0,::]));
-  fprintf(stderr, "[2d] max(Pin): %g\n", max(Pin[0,::]));
-  
+  if (debug) {
+    fputs(stderr, "cwevm_2d:");
+    fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0]));
+    fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::]));
+    fprintf(stderr, "[2d] min(Pin): %g\n", min(Pin[0,::]));
+    fprintf(stderr, "[2d] max(Pin): %g\n", max(Pin[0,::]));
+  }  
 
   decl result=0*Pin[::,::];
   decl numPts_k = sweep_size(result[::,0]);
@@ -127,31 +144,38 @@ defun cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
 
   for (k=0; k<numPts_k; k++)                       
   {
-    fputs(stderr, strcat("2d_k=",identify_value(k)));
-    result[k,::] = cwevm_1d(Pin[k,::], Pout[k,::], gain_delta[k,::], phase_delta[k,::], EVM_Pstep, limit_low, limit_high);
+    if (debug) fputs(stderr, strcat("2d_k=",identify_value(k)));
+    result[k,::] = cwevm_1d(Pin[k,::], Pout[k,::], gain_delta[k,::], phase_delta[k,::], 
+                            EVM_Pstep, limit_low, limit_high, debug);
   }
   return(result);  
 }
 
-defun cwevm_3d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+defun cwevm_3d(Pin, Pout, gain_delta, phase_delta, 
+               EVM_Pstep, limit_low, limit_high, debug)
 {
-  fputs(stderr, "evm_3d:");
-  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0,0]));
-  fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::,0]));
-  fprintf(stderr, "Dim 3: %d\n", sweep_size(Pin[0,0,::]));
+  if (debug) {
+    fputs(stderr, "evm_3d:");
+    fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0,0]));
+    fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::,0]));
+    fprintf(stderr, "Dim 3: %d\n", sweep_size(Pin[0,0,::]));
+  }
+
   decl result=0*Pin[::,::,::];
   decl numPts_k3 = sweep_size(result[::,0,0]);
   decl k3;
   
   for (k3=0; k3<numPts_k3; k3++)                       
   {
-    fputs(stderr, strcat("3d_k=",identify_value(k3)));
-    result[k3,::,::] = cwevm_2d(Pin[k3,::,::], Pout[k3,::,::], gain_delta[k3,::,::], phase_delta[k3,::,::], EVM_Pstep, limit_low, limit_high);
+    if (debug) fputs(stderr, strcat("3d_k=",identify_value(k3)));
+    result[k3,::,::] = cwevm_2d(Pin[k3,::,::], Pout[k3,::,::], gain_delta[k3,::,::], 
+                                phase_delta[k3,::,::], 
+                                EVM_Pstep, limit_low, limit_high, debug);
   }
   return(result);  
 }
 
-defun cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high)
+defun cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high, debug)
 {
   decl db_to_fudge = 1;
     
@@ -182,6 +206,8 @@ defun cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high)
   //decl result = [Pin_start::EVM_Pstep::Pin_stop];
   decl result = Pin[find_index(Pin,Pin_start)::find_index(Pin,Pin_stop)];
 
-  fprintf(stderr, "evm_calc_Pin_range:  Num Output points: %d\n", sweep_size(result));
+  if (debug) {
+    fprintf(stderr, "evm_calc_Pin_range:  Num Output points: %d\n", sweep_size(result));
+  }
   return(result);
 }
