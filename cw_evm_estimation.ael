@@ -53,7 +53,7 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
   fprintf(stderr, "[1d] max(Pin): %g\n", max(Pin));
   
   //decl Pin_avg = cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high);
-  decl Pin_avg=[min(Pin)::EVM_Pstep::max(Pin)];
+  decl Pin_avg=Pin; // [min(Pin)::EVM_Pstep::max(Pin)];
   decl Pin_num_total = sweep_size(Pin_avg);
   // This is lazy
   // Assumes that first PIn level is valid
@@ -66,6 +66,7 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
   decl EVM_AMPM=0*Pin_avg;
   decl evm_calc=0*Pin_avg;
   decl Pin_idx, rdB, r1, r2, dr, rPin, rPin_idx;
+  decl ridx, rstart, rstop;
 
   fprintf(stderr, "Input Power Levels:  %d\n", Pin_num_total);
   fprintf(stderr, "Valid Power levels: %d\n",  Pin_num_valid);
@@ -78,12 +79,17 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
     EVM_AMAM[cnt]=0;
     EVM_AMPM[cnt]=0;
 
-    for (rdB=limit_low; rdB<=limit_high; rdB+=EVM_Pstep)
+    //for (rdB=limit_low; rdB<=limit_high; rdB+=EVM_Pstep)
+	rstart = find_index( Pin_avg, Pin_avg[cnt]+limit_low );
+	rstop  = find_index( Pin_avg, Pin_avg[cnt]+limit_high );
+
+	// stopping one short to prevent r2 calc from going out-of-bounds
+	for (ridx=rstart; ridx<rstop; ridx++)
     {  
-       r1=pow(10,rdB/10);
-       r2=pow(10,(rdB+EVM_Pstep)/10);
+       r1=pow(10,( Pin_avg[ridx]     - Pin_avg[cnt] )/10);
+       r2=pow(10,( Pin_avg[ridx + 1] - Pin_avg[cnt] )/10);
        dr=r2-r1;
-       rPin=Pin_avg[cnt]+rdB;
+       rPin=Pin_avg[ridx]; // Pin_avg[cnt]+rdB;
 
        if (rPin>=min(Pin) && rPin<=max(Pin))
        {
@@ -99,9 +105,11 @@ defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_h
 
     fprintf(stderr, "pout: %g\tevmAM: %g\tevmPM: %g\tevmRMS: %g\n", Pout_avg[cnt], EVM_AMAM[cnt], EVM_AMPM[cnt], evm_calc[cnt]);
   }
+  
   // decl result=vs(evm_calc, Pout_avg, "Pout_dBm");
   // return(result);
-  return(evm_calc); 
+
+  return(vs(evm_calc,indep(Pin))); 
 }
 
 defun cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
@@ -170,7 +178,10 @@ defun cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high)
   //fprintf(stderr, "Pin_start:   %g\n", Pin_start);
   //fprintf(stderr, "Pin_stop:    %g\n", Pin_stop);
   if (Pin_start > Pin_stop) print_function_error( "evm()", "Input power range smaller than CCDF integration range (limit_high-limit_low)");
-  decl result = [Pin_start::EVM_Pstep::Pin_stop];
+  
+  //decl result = [Pin_start::EVM_Pstep::Pin_stop];
+  decl result = Pin[find_index(Pin,Pin_start)::find_index(Pin,Pin_stop)];
+
   fprintf(stderr, "evm_calc_Pin_range:  Num Output points: %d\n", sweep_size(result));
   return(result);
 }
