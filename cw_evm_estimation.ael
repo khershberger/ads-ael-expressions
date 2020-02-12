@@ -1,0 +1,176 @@
+//****************************************************************************
+// cw_evm_estimation.ael
+//****************************************************************************
+//  Revision 2.3.0
+// 
+// Function to estimate OFDM EVM based on CW simulation
+// 
+// Assumptions:
+//   1.  Modulation is accurately modeled as white gaussian noise
+//   2.  Circuit is memoryless
+//
+// Implementation of method described in:
+//   An Efficient Algorithm for Simulating Error Vector Magnitude
+//   in Nonlinear OFDM Amplifiers
+//   Custom Integrated Circuits Conference 2004
+//   Shingo Yamanouchi, et al.
+//
+//
+
+//****************************************************************************
+// cwevm() - Estimates EVM using CW (AMAM/AMPM) sweep_dim
+//****************************************************************************
+defun cwevm(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+{
+  fputs(stderr, "*** evm()");
+  decl sweepDim = sweep_dim(Pin);
+  decl results = NULL; 
+  fputs(stderr, strcat("sweepDim=",identify_value(sweepDim)));
+
+  switch (sweepDim) {
+    case 0: print_function_error( "cwevm", " does not support single number data.");
+      return;
+      break;
+    case 1: results = cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+       break;
+    case 2: results = cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+       break;
+    case 3: results = cwevm_3d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high);
+       break;
+    default: print_function_error( "cwevm", " does not support data with dimensions greater than three.");
+      return;
+      break;
+  }
+
+  return results;
+}
+
+defun cwevm_1d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+{
+  fputs(stderr, "evm_1d:");
+  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::]));
+  fprintf(stderr, "[1d] min(Pin): %g\n", min(Pin));
+  fprintf(stderr, "[1d] max(Pin): %g\n", max(Pin));
+  
+  //decl Pin_avg = cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high);
+  decl Pin_avg=[min(Pin)::EVM_Pstep::max(Pin)];
+  decl Pin_num_total = sweep_size(Pin_avg);
+  // This is lazy
+  // Assumes that first PIn level is valid
+  // Should really add handling for first valid Pin level not being index 0
+  decl Pin_num_valid = sweep_size(cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high));
+  
+  decl cnt=0;
+  decl Pout_avg=0*Pin_avg;
+  decl EVM_AMAM=0*Pin_avg;
+  decl EVM_AMPM=0*Pin_avg;
+  decl evm_calc=0*Pin_avg;
+  decl Pin_idx, rdB, r1, r2, dr, rPin, rPin_idx;
+
+  fprintf(stderr, "Input Power Levels:  %d\n", Pin_num_total);
+  fprintf(stderr, "Valid Power levels: %d\n",  Pin_num_valid);
+ 
+  for (cnt=0; cnt<Pin_num_valid; cnt++)
+  {
+    Pin_idx=find_index(Pin,Pin_avg[cnt]);
+    Pout_avg[cnt]=Pout[Pin_idx];
+    
+    EVM_AMAM[cnt]=0;
+    EVM_AMPM[cnt]=0;
+
+    for (rdB=limit_low; rdB<=limit_high; rdB+=EVM_Pstep)
+    {  
+       r1=pow(10,rdB/10);
+       r2=pow(10,(rdB+EVM_Pstep)/10);
+       dr=r2-r1;
+       rPin=Pin_avg[cnt]+rdB;
+
+       if (rPin>=min(Pin) && rPin<=max(Pin))
+       {
+           rPin_idx=find_index(Pin,rPin);
+           EVM_AMAM[cnt]+=dr*exp(-r1)*r1*sqr((gain_delta[rPin_idx]-gain_delta[Pin_idx]));
+           EVM_AMPM[cnt]+=dr*exp(-r1)*r1*sqr((phase_delta[rPin_idx]-phase_delta[Pin_idx]));
+       }
+    }
+
+    EVM_AMAM[cnt]=ln10/20*sqrt(EVM_AMAM[cnt]);
+    EVM_AMPM[cnt]=pi/180*sqrt(EVM_AMPM[cnt]);
+    evm_calc[cnt]=sqrt(sqr(EVM_AMAM[cnt])+sqr(EVM_AMPM[cnt]));
+
+    fprintf(stderr, "pout: %g\tevmAM: %g\tevmPM: %g\tevmRMS: %g\n", Pout_avg[cnt], EVM_AMAM[cnt], EVM_AMPM[cnt], evm_calc[cnt]);
+  }
+  // decl result=vs(evm_calc, Pout_avg, "Pout_dBm");
+  // return(result);
+  return(evm_calc); 
+}
+
+defun cwevm_2d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+{
+  fputs(stderr, "cwevm_2d:");
+  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0]));
+  fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::]));
+  fprintf(stderr, "[2d] min(Pin): %g\n", min(Pin[0,::]));
+  fprintf(stderr, "[2d] max(Pin): %g\n", max(Pin[0,::]));
+  
+
+  decl result=0*Pin[::,::];
+  decl numPts_k = sweep_size(result[::,0]);
+  decl k;
+
+  for (k=0; k<numPts_k; k++)                       
+  {
+    fputs(stderr, strcat("2d_k=",identify_value(k)));
+    result[k,::] = cwevm_1d(Pin[k,::], Pout[k,::], gain_delta[k,::], phase_delta[k,::], EVM_Pstep, limit_low, limit_high);
+  }
+  return(result);  
+}
+
+defun cwevm_3d(Pin, Pout, gain_delta, phase_delta, EVM_Pstep, limit_low, limit_high)
+{
+  fputs(stderr, "evm_3d:");
+  fprintf(stderr, "Dim 1: %d\n", sweep_size(Pin[::,0,0]));
+  fprintf(stderr, "Dim 2: %d\n", sweep_size(Pin[0,::,0]));
+  fprintf(stderr, "Dim 3: %d\n", sweep_size(Pin[0,0,::]));
+  decl result=0*Pin[::,::,::];
+  decl numPts_k3 = sweep_size(result[::,0,0]);
+  decl k3;
+  
+  for (k3=0; k3<numPts_k3; k3++)                       
+  {
+    fputs(stderr, strcat("3d_k=",identify_value(k3)));
+    result[k3,::,::] = cwevm_2d(Pin[k3,::,::], Pout[k3,::,::], gain_delta[k3,::,::], phase_delta[k3,::,::], EVM_Pstep, limit_low, limit_high);
+  }
+  return(result);  
+}
+
+defun cwevm_calc_Pin_range(Pin, EVM_Pstep, limit_low, limit_high)
+{
+  decl db_to_fudge = 1;
+    
+  // Check for valid ranges
+  if (limit_low  > 0) print_function_error( "evm()", "limit_low must be less than 0");
+  if (limit_high < 0) print_function_error( "evm()", "limit_high must be greater than 0");
+  
+  decl Pin_start = min(Pin);
+  decl Pin_stop  = max(Pin);
+  // Don't worry about low end of CCDF being outside input sweep range
+  //if (limit_low < 0) 
+  //{
+  //  Pin_start = min(Pin)-limit_low;
+  //}
+  
+  // Calculate how many power points to truncate at top end of range
+  // db_to_fudge allows a certain range of points that are technicaly ourside of the
+  // reference integration range to be output.  The larger the number the more error allowed
+  // for these points.
+  if (limit_high > 0) 
+  {
+    Pin_stop = max(Pin)-max([(limit_high-db_to_fudge), 0]);
+  }
+  //fprintf(stderr, "Pin_start:   %g\n", Pin_start);
+  //fprintf(stderr, "Pin_stop:    %g\n", Pin_stop);
+  if (Pin_start > Pin_stop) print_function_error( "evm()", "Input power range smaller than CCDF integration range (limit_high-limit_low)");
+  decl result = [Pin_start::EVM_Pstep::Pin_stop];
+  fprintf(stderr, "evm_calc_Pin_range:  Num Output points: %d\n", sweep_size(result));
+  return(result);
+}
