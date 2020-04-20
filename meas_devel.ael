@@ -9,6 +9,8 @@
 //****************************************************************************
 defun diffns(data)
 {
+  if (data == NULL) return NULL;  // Fix bug that caused DDS to crash if input was NULL
+
   decl debug = FALSE;
   decl sweepDim = sweep_dim(data);
   decl results = NULL; 
@@ -16,7 +18,7 @@ defun diffns(data)
     fputs(stderr, "*** diffns()");
     fputs(stderr, strcat("sweepDim=",identify_value(sweepDim)));
   }
-
+  
   switch (sweepDim) {
     case 0: print_function_error( "diffns", " does not support single number data.");
       return;
@@ -28,7 +30,6 @@ defun diffns(data)
     case 3: results = diffns_3d(data);
        break;
     default: print_function_error( "diffns", " does not support data with dimensions greater than one.");
-      return;
       break;
   }
 
